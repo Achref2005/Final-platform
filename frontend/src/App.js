@@ -1263,15 +1263,552 @@ const StudentDashboard = () => {
   );
 };
 
-// Teacher Dashboard Page (placeholder)
+// Teacher Dashboard Page
 const TeacherDashboard = () => {
+  const { user } = useAuth();
+  const [teacherData, setTeacherData] = useState(null);
+  const [students, setStudents] = useState([]);
+  const [schedules, setSchedules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState("students");
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  
+  useEffect(() => {
+    const fetchTeacherData = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch the teacher profile
+        const teacherResponse = await axiosInstance.get("/teachers", {
+          params: { user_id: user.id }
+        });
+        
+        if (teacherResponse.data && teacherResponse.data.length > 0) {
+          const teacher = teacherResponse.data[0];
+          setTeacherData(teacher);
+          
+          // Fetch courses assigned to this teacher
+          const coursesResponse = await axiosInstance.get("/courses", {
+            params: { teacher_id: teacher.id }
+          });
+          
+          // Fetch schedule for this teacher
+          const schedulesResponse = await axiosInstance.get("/schedules", {
+            params: { teacher_id: teacher.id }
+          });
+          setSchedules(schedulesResponse.data);
+          
+          // Extract unique student IDs
+          const studentIds = [...new Set(coursesResponse.data.map(course => course.student_id))];
+          
+          // Fetch student details for each ID
+          const studentsData = [];
+          for (const studentId of studentIds) {
+            try {
+              const studentResponse = await axiosInstance.get(`/users/${studentId}`);
+              if (studentResponse.data) {
+                // Add courses to student data
+                const studentCourses = coursesResponse.data.filter(
+                  course => course.student_id === studentId
+                );
+                studentResponse.data.courses = studentCourses;
+                studentsData.push(studentResponse.data);
+              }
+            } catch (err) {
+              console.error(`Error fetching student ${studentId}:`, err);
+            }
+          }
+          
+          setStudents(studentsData);
+        }
+      } catch (err) {
+        console.error("Error fetching teacher data:", err);
+        setError("Failed to load teacher data. Please try again later.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (user && user.id) {
+      fetchTeacherData();
+    }
+  }, [user]);
+
+  // Get today's schedules
+  const getTodaySchedules = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    return schedules.filter(schedule => {
+      const scheduleDate = new Date(schedule.date);
+      scheduleDate.setHours(0, 0, 0, 0);
+      return scheduleDate.getTime() === today.getTime();
+    });
+  };
+  
+  // Get week's schedules
+  const getWeekSchedules = () => {
+    const today = new Date();
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay()); // Sunday
+    startOfWeek.setHours(0, 0, 0, 0);
+    
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6); // Saturday
+    endOfWeek.setHours(23, 59, 59, 999);
+    
+    return schedules.filter(schedule => {
+      const scheduleDate = new Date(schedule.date);
+      return scheduleDate >= startOfWeek && scheduleDate <= endOfWeek;
+    });
+  };
+  
+  // Format time from datetime
+  const formatTime = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+  
+  // Format date from datetime
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  };
+  
+  const handleAddSchedule = () => {
+    // Placeholder for adding new schedule
+    alert("Schedule creation functionality would be implemented here");
+  };
+  
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8 text-center">
+        <h1 className="text-3xl font-bold mb-6">Teacher Dashboard</h1>
+        <p>Loading your data...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-3xl font-bold mb-6">Teacher Dashboard</h1>
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          <span className="block sm:inline">{error}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!teacherData) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-3xl font-bold mb-6">Teacher Dashboard</h1>
+        <p className="mb-4">Your teacher profile hasn't been set up yet. Please contact your driving school manager.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-6">Teacher Dashboard</h1>
-      <p className="mb-4">Welcome to your teacher dashboard. Here you can manage your students and schedule.</p>
+      
+      {/* Teacher Info */}
+      <div className="bg-white shadow rounded-lg p-6 mb-6">
+        <div className="grid md:grid-cols-2 gap-6">
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Your Information</h2>
+            <p className="mb-2"><span className="font-medium">Driving School:</span> {teacherData.driving_school_name || "Not specified"}</p>
+            <p className="mb-2"><span className="font-medium">Years of Experience:</span> {teacherData.years_experience}</p>
+            <p className="mb-2">
+              <span className="font-medium">Specialization:</span>{" "}
+              {teacherData.specialization 
+                ? teacherData.specialization.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(", ")
+                : "Not specified"
+              }
+            </p>
+          </div>
+          
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Today's Schedule</h2>
+            {getTodaySchedules().length === 0 ? (
+              <p className="text-gray-500">No classes scheduled for today.</p>
+            ) : (
+              <div className="space-y-2">
+                {getTodaySchedules().map((schedule) => (
+                  <div key={schedule.id} className="bg-gray-100 p-3 rounded">
+                    <p className="font-medium">
+                      {schedule.course_type || "Class"} - {formatTime(schedule.date)}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {schedule.student_name || "Student"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      
+      {/* Tabs */}
+      <div className="mb-6 border-b border-gray-200">
+        <ul className="flex flex-wrap -mb-px">
+          <li className="mr-2">
+            <button
+              className={`inline-block p-4 rounded-t-lg ${
+                activeTab === "students" 
+                  ? "text-green-600 border-b-2 border-green-600" 
+                  : "text-gray-500 hover:text-gray-600 hover:border-gray-300"
+              }`}
+              onClick={() => setActiveTab("students")}
+            >
+              Students ({students.length})
+            </button>
+          </li>
+          <li className="mr-2">
+            <button
+              className={`inline-block p-4 rounded-t-lg ${
+                activeTab === "schedule" 
+                  ? "text-green-600 border-b-2 border-green-600" 
+                  : "text-gray-500 hover:text-gray-600 hover:border-gray-300"
+              }`}
+              onClick={() => setActiveTab("schedule")}
+            >
+              Schedule
+            </button>
+          </li>
+          <li className="mr-2">
+            <button
+              className={`inline-block p-4 rounded-t-lg ${
+                activeTab === "exams" 
+                  ? "text-green-600 border-b-2 border-green-600" 
+                  : "text-gray-500 hover:text-gray-600 hover:border-gray-300"
+              }`}
+              onClick={() => setActiveTab("exams")}
+            >
+              Exams
+            </button>
+          </li>
+        </ul>
+      </div>
+      
+      {/* Tab Content */}
       <div className="bg-white shadow rounded-lg p-6">
-        <h2 className="text-xl font-semibold mb-4">Your Students</h2>
-        <p className="text-gray-500">No students assigned yet.</p>
+        {/* Students Tab */}
+        {activeTab === "students" && (
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Your Students</h2>
+            
+            {students.length === 0 ? (
+              <p className="text-gray-500">No students assigned yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="py-2 px-4 text-left">Name</th>
+                      <th className="py-2 px-4 text-left">Gender</th>
+                      <th className="py-2 px-4 text-left">Contact</th>
+                      <th className="py-2 px-4 text-left">Courses</th>
+                      <th className="py-2 px-4 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {students.map((student) => (
+                      <tr key={student.id}>
+                        <td className="py-3 px-4">{student.full_name}</td>
+                        <td className="py-3 px-4 capitalize">{student.gender}</td>
+                        <td className="py-3 px-4">
+                          <div>{student.email}</div>
+                          <div className="text-sm text-gray-500">{student.phone}</div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {student.courses && student.courses.length > 0 ? (
+                            <div className="space-y-1">
+                              {student.courses.map((course) => (
+                                <div key={course.id} className="flex items-center">
+                                  <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
+                                    course.status === "completed" ? "bg-green-500" :
+                                    course.status === "in_progress" ? "bg-yellow-500" :
+                                    course.status === "failed" ? "bg-red-500" :
+                                    "bg-gray-500"
+                                  }`}></span>
+                                  <span className="capitalize">{course.type}</span>
+                                  <span className="mx-1">-</span>
+                                  <span className="text-xs text-gray-500 capitalize">{course.status.replace("_", " ")}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-500">No courses</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <button className="text-blue-600 hover:text-blue-800 mr-2">
+                            Schedule Class
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Schedule Tab */}
+        {activeTab === "schedule" && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Your Schedule</h2>
+              <button 
+                onClick={handleAddSchedule}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+              >
+                Add New Schedule
+              </button>
+            </div>
+            
+            <div className="mb-4">
+              <div className="flex items-center space-x-2 mb-3">
+                <button 
+                  className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                  onClick={() => setSelectedDate(new Date())}
+                >
+                  Today
+                </button>
+                <button className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">This Week</button>
+                <button className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">This Month</button>
+              </div>
+              
+              <div className="grid grid-cols-7 gap-2 text-center font-medium text-sm mb-2">
+                <div>Sunday</div>
+                <div>Monday</div>
+                <div>Tuesday</div>
+                <div>Wednesday</div>
+                <div>Thursday</div>
+                <div>Friday</div>
+                <div>Saturday</div>
+              </div>
+              
+              <div className="border rounded-lg overflow-hidden">
+                <div className="grid grid-cols-7 gap-0 text-sm">
+                  {/* Generate calendar cells for a week */}
+                  {Array.from({ length: 7 }).map((_, dayIndex) => {
+                    const date = new Date();
+                    date.setDate(date.getDate() - date.getDay() + dayIndex);
+                    
+                    // Filter schedules for this day
+                    const daySchedules = schedules.filter(schedule => {
+                      const scheduleDate = new Date(schedule.date);
+                      return (
+                        scheduleDate.getDate() === date.getDate() &&
+                        scheduleDate.getMonth() === date.getMonth() &&
+                        scheduleDate.getFullYear() === date.getFullYear()
+                      );
+                    });
+                    
+                    return (
+                      <div 
+                        key={dayIndex} 
+                        className={`border min-h-[200px] p-2 ${
+                          date.getDay() === new Date().getDay() ? "bg-blue-50" : ""
+                        }`}
+                      >
+                        <div className="font-medium mb-2">{date.getDate()}</div>
+                        
+                        {daySchedules.map((schedule) => (
+                          <div 
+                            key={schedule.id} 
+                            className={`p-1 rounded mb-1 text-xs ${
+                              schedule.course_type === "code" ? "bg-green-100 text-green-800" :
+                              schedule.course_type === "parking" ? "bg-yellow-100 text-yellow-800" :
+                              "bg-blue-100 text-blue-800"
+                            }`}
+                          >
+                            <div className="font-medium">{schedule.course_type ? schedule.course_type.charAt(0).toUpperCase() + schedule.course_type.slice(1) : "Class"}</div>
+                            <div>{formatTime(schedule.date)}</div>
+                            <div>{schedule.student_name || "Student"}</div>
+                          </div>
+                        ))}
+                        
+                        {/* Add placeholder schedules for demonstration */}
+                        {daySchedules.length === 0 && dayIndex === 1 && (
+                          <div className="bg-green-100 text-green-800 p-1 rounded mb-1 text-xs">
+                            <div className="font-medium">Code Course</div>
+                            <div>9:00 AM - 10:00 AM</div>
+                            <div>Group class</div>
+                          </div>
+                        )}
+                        
+                        {daySchedules.length === 0 && dayIndex === 3 && (
+                          <div className="bg-yellow-100 text-yellow-800 p-1 rounded mb-1 text-xs">
+                            <div className="font-medium">Parking Course</div>
+                            <div>2:00 PM - 3:00 PM</div>
+                            <div>Mohammed A.</div>
+                          </div>
+                        )}
+                        
+                        {daySchedules.length === 0 && dayIndex === 5 && (
+                          <div className="bg-blue-100 text-blue-800 p-1 rounded mb-1 text-xs">
+                            <div className="font-medium">Road Course</div>
+                            <div>10:30 AM - 11:30 AM</div>
+                            <div>Fatima Z.</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4">
+              <h3 className="font-semibold mb-2">Upcoming Classes</h3>
+              
+              {getWeekSchedules().length === 0 ? (
+                <p className="text-gray-500">No upcoming classes scheduled.</p>
+              ) : (
+                <div className="space-y-2">
+                  {getWeekSchedules()
+                    .sort((a, b) => new Date(a.date) - new Date(b.date))
+                    .slice(0, 5)
+                    .map((schedule) => (
+                      <div key={schedule.id} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                        <div>
+                          <p className="font-medium">{schedule.course_type ? schedule.course_type.charAt(0).toUpperCase() + schedule.course_type.slice(1) : "Class"}</p>
+                          <p className="text-sm text-gray-600">{schedule.student_name || "Student"}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-medium">{formatDate(schedule.date)}</p>
+                          <p className="text-sm text-gray-600">{formatTime(schedule.date)}</p>
+                        </div>
+                      </div>
+                    ))
+                  }
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {/* Exams Tab */}
+        {activeTab === "exams" && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Exams</h2>
+              <button className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">
+                Schedule New Exam
+              </button>
+            </div>
+            
+            <div className="mb-6">
+              <h3 className="font-semibold mb-2">Upcoming Exams</h3>
+              
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="py-2 px-4 text-left">Student</th>
+                      <th className="py-2 px-4 text-left">Course</th>
+                      <th className="py-2 px-4 text-left">Date</th>
+                      <th className="py-2 px-4 text-left">Status</th>
+                      <th className="py-2 px-4 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    <tr>
+                      <td className="py-3 px-4">Ahmed Khaled</td>
+                      <td className="py-3 px-4">Code</td>
+                      <td className="py-3 px-4">May 15, 2025 - 10:00 AM</td>
+                      <td className="py-3 px-4">
+                        <span className="inline-block px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
+                          Scheduled
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <button className="text-blue-600 hover:text-blue-800 mr-2">
+                          Update
+                        </button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 px-4">Sara Benmoussa</td>
+                      <td className="py-3 px-4">Parking</td>
+                      <td className="py-3 px-4">May 20, 2025 - 2:00 PM</td>
+                      <td className="py-3 px-4">
+                        <span className="inline-block px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
+                          Scheduled
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <button className="text-blue-600 hover:text-blue-800 mr-2">
+                          Update
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            
+            <div>
+              <h3 className="font-semibold mb-2">Past Exams</h3>
+              
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="py-2 px-4 text-left">Student</th>
+                      <th className="py-2 px-4 text-left">Course</th>
+                      <th className="py-2 px-4 text-left">Date</th>
+                      <th className="py-2 px-4 text-left">Status</th>
+                      <th className="py-2 px-4 text-left">Score</th>
+                      <th className="py-2 px-4 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    <tr>
+                      <td className="py-3 px-4">Karim Benali</td>
+                      <td className="py-3 px-4">Code</td>
+                      <td className="py-3 px-4">Apr 28, 2025</td>
+                      <td className="py-3 px-4">
+                        <span className="inline-block px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
+                          Passed
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">85%</td>
+                      <td className="py-3 px-4">
+                        <button className="text-blue-600 hover:text-blue-800 mr-2">
+                          View Details
+                        </button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 px-4">Nadia Ameur</td>
+                      <td className="py-3 px-4">Parking</td>
+                      <td className="py-3 px-4">Apr 25, 2025</td>
+                      <td className="py-3 px-4">
+                        <span className="inline-block px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">
+                          Failed
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">65%</td>
+                      <td className="py-3 px-4">
+                        <button className="text-blue-600 hover:text-blue-800 mr-2">
+                          View Details
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
