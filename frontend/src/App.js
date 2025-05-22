@@ -1277,15 +1277,995 @@ const TeacherDashboard = () => {
   );
 };
 
-// Manager Dashboard Page (placeholder)
+// Manager Dashboard Page
 const ManagerDashboard = () => {
+  const { user } = useAuth();
+  const [drivingSchool, setDrivingSchool] = useState(null);
+  const [students, setStudents] = useState([]);
+  const [teachers, setTeachers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
+  const [showAddCarModal, setShowAddCarModal] = useState(false);
+  const [cars, setCars] = useState([]);
+  const [activeTab, setActiveTab] = useState("school");
+
+  // Form state for adding a new teacher
+  const [newTeacher, setNewTeacher] = useState({
+    email: "",
+    full_name: "",
+    phone: "",
+    gender: "male",
+    address: "",
+    state: "",
+    date_of_birth: "",
+    license_number: "",
+    years_experience: 0,
+    specialization: [],
+    bio: ""
+  });
+
+  // Form state for adding a new car
+  const [newCar, setNewCar] = useState({
+    make: "",
+    model: "",
+    year: new Date().getFullYear(),
+    license_plate: "",
+    color: ""
+  });
+
+  useEffect(() => {
+    const fetchDrivingSchoolData = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch the manager's driving school
+        const schoolResponse = await axiosInstance.get("/driving-schools", {
+          params: { manager_id: user.id }
+        });
+        
+        if (schoolResponse.data && schoolResponse.data.length > 0) {
+          const school = schoolResponse.data[0];
+          setDrivingSchool(school);
+          
+          // Fetch teachers for this school
+          const teachersResponse = await axiosInstance.get("/teachers", {
+            params: { driving_school_id: school.id }
+          });
+          setTeachers(teachersResponse.data);
+          
+          // Fetch students enrolled in this school's courses
+          const coursesResponse = await axiosInstance.get("/courses", {
+            params: { driving_school_id: school.id }
+          });
+          
+          // Extract unique student IDs
+          const studentIds = [...new Set(coursesResponse.data.map(course => course.student_id))];
+          
+          // Fetch student details for each ID
+          const studentsData = [];
+          for (const studentId of studentIds) {
+            try {
+              const studentResponse = await axiosInstance.get(`/users/${studentId}`);
+              if (studentResponse.data) {
+                // Add courses to student data
+                const studentCourses = coursesResponse.data.filter(
+                  course => course.student_id === studentId
+                );
+                studentResponse.data.courses = studentCourses;
+                studentsData.push(studentResponse.data);
+              }
+            } catch (err) {
+              console.error(`Error fetching student ${studentId}:`, err);
+            }
+          }
+          
+          setStudents(studentsData);
+          
+          // Fetch cars for this school (assuming there's a cars endpoint)
+          try {
+            const carsResponse = await axiosInstance.get("/cars", {
+              params: { driving_school_id: school.id }
+            });
+            setCars(carsResponse.data);
+          } catch (err) {
+            // If there's no cars endpoint yet, just log and continue
+            console.log("Cars endpoint not available yet:", err);
+            // Mock some cars data for the UI
+            setCars([
+              { 
+                id: "1", 
+                make: "Renault", 
+                model: "Clio", 
+                year: 2020, 
+                license_plate: "123456-16", 
+                color: "White",
+                status: "Available"
+              },
+              { 
+                id: "2", 
+                make: "Peugeot", 
+                model: "208", 
+                year: 2021, 
+                license_plate: "789012-16", 
+                color: "Black",
+                status: "In use"
+              }
+            ]);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching driving school data:", err);
+        setError("Failed to load driving school data. Please try again later.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (user && user.id) {
+      fetchDrivingSchoolData();
+    }
+  }, [user]);
+
+  const handleAddTeacher = async (e) => {
+    e.preventDefault();
+    
+    try {
+      // First register the teacher user
+      const teacherUserData = {
+        email: newTeacher.email,
+        full_name: newTeacher.full_name,
+        phone: newTeacher.phone,
+        gender: newTeacher.gender,
+        address: newTeacher.address,
+        state: newTeacher.state || (drivingSchool ? drivingSchool.state : ""),
+        password: "Teacher123", // Default password that teacher can change later
+        role: "teacher"
+      };
+      
+      const userResponse = await axiosInstance.post("/auth/register", teacherUserData);
+      
+      if (userResponse.data && userResponse.data.id) {
+        // Now create the teacher profile
+        const teacherData = {
+          user_id: userResponse.data.id,
+          driving_school_id: drivingSchool.id,
+          gender: newTeacher.gender,
+          years_experience: parseInt(newTeacher.years_experience) || 0,
+          specialization: newTeacher.specialization || ["code", "parking", "road"],
+          bio: newTeacher.bio,
+          date_of_birth: newTeacher.date_of_birth,
+          license_number: newTeacher.license_number
+        };
+        
+        const teacherResponse = await axiosInstance.post("/teachers", teacherData);
+        
+        if (teacherResponse.data) {
+          // Add the new teacher to the list
+          setTeachers([...teachers, {
+            ...teacherResponse.data,
+            user: userResponse.data
+          }]);
+          
+          // Reset form and close modal
+          setNewTeacher({
+            email: "",
+            full_name: "",
+            phone: "",
+            gender: "male",
+            address: "",
+            state: "",
+            date_of_birth: "",
+            license_number: "",
+            years_experience: 0,
+            specialization: [],
+            bio: ""
+          });
+          setShowAddTeacherModal(false);
+        }
+      }
+    } catch (err) {
+      console.error("Error adding teacher:", err);
+      alert(err.response?.data?.detail || "Failed to add teacher. Please try again.");
+    }
+  };
+
+  const handleAddCar = async (e) => {
+    e.preventDefault();
+    
+    try {
+      // Normally would call API, but for now just add to local state
+      const carData = {
+        id: `temp-${Date.now()}`,
+        ...newCar,
+        driving_school_id: drivingSchool.id,
+        status: "Available"
+      };
+      
+      setCars([...cars, carData]);
+      
+      // Reset form and close modal
+      setNewCar({
+        make: "",
+        model: "",
+        year: new Date().getFullYear(),
+        license_plate: "",
+        color: ""
+      });
+      setShowAddCarModal(false);
+      
+      alert("Car added successfully!");
+    } catch (err) {
+      console.error("Error adding car:", err);
+      alert("Failed to add car. Please try again.");
+    }
+  };
+
+  const handleTeacherInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    
+    if (name === "specialization") {
+      const updatedSpecialization = [...newTeacher.specialization];
+      if (checked) {
+        updatedSpecialization.push(value);
+      } else {
+        const index = updatedSpecialization.indexOf(value);
+        if (index > -1) {
+          updatedSpecialization.splice(index, 1);
+        }
+      }
+      setNewTeacher({ ...newTeacher, specialization: updatedSpecialization });
+    } else {
+      setNewTeacher({ ...newTeacher, [name]: value });
+    }
+  };
+
+  const handleCarInputChange = (e) => {
+    const { name, value } = e.target;
+    setNewCar({ ...newCar, [name]: value });
+  };
+
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8 text-center">
+        <h1 className="text-3xl font-bold mb-6">Manager Dashboard</h1>
+        <p>Loading your driving school data...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-3xl font-bold mb-6">Manager Dashboard</h1>
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          <span className="block sm:inline">{error}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!drivingSchool) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-3xl font-bold mb-6">Manager Dashboard</h1>
+        <p className="mb-4">You haven't registered a driving school yet.</p>
+        <Link 
+          to="/register-driving-school"
+          className="inline-block bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+        >
+          Register Your Driving School
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-6">Manager Dashboard</h1>
-      <p className="mb-4">Welcome to your manager dashboard. Here you can manage your driving school.</p>
+      
+      {/* Tabs */}
+      <div className="mb-6 border-b border-gray-200">
+        <ul className="flex flex-wrap -mb-px">
+          <li className="mr-2">
+            <button
+              className={`inline-block p-4 rounded-t-lg ${
+                activeTab === "school" 
+                  ? "text-green-600 border-b-2 border-green-600" 
+                  : "text-gray-500 hover:text-gray-600 hover:border-gray-300"
+              }`}
+              onClick={() => setActiveTab("school")}
+            >
+              School Details
+            </button>
+          </li>
+          <li className="mr-2">
+            <button
+              className={`inline-block p-4 rounded-t-lg ${
+                activeTab === "students" 
+                  ? "text-green-600 border-b-2 border-green-600" 
+                  : "text-gray-500 hover:text-gray-600 hover:border-gray-300"
+              }`}
+              onClick={() => setActiveTab("students")}
+            >
+              Students ({students.length})
+            </button>
+          </li>
+          <li className="mr-2">
+            <button
+              className={`inline-block p-4 rounded-t-lg ${
+                activeTab === "teachers" 
+                  ? "text-green-600 border-b-2 border-green-600" 
+                  : "text-gray-500 hover:text-gray-600 hover:border-gray-300"
+              }`}
+              onClick={() => setActiveTab("teachers")}
+            >
+              Teachers ({teachers.length})
+            </button>
+          </li>
+          <li className="mr-2">
+            <button
+              className={`inline-block p-4 rounded-t-lg ${
+                activeTab === "cars" 
+                  ? "text-green-600 border-b-2 border-green-600" 
+                  : "text-gray-500 hover:text-gray-600 hover:border-gray-300"
+              }`}
+              onClick={() => setActiveTab("cars")}
+            >
+              Cars ({cars.length})
+            </button>
+          </li>
+          <li className="mr-2">
+            <button
+              className={`inline-block p-4 rounded-t-lg ${
+                activeTab === "schedule" 
+                  ? "text-green-600 border-b-2 border-green-600" 
+                  : "text-gray-500 hover:text-gray-600 hover:border-gray-300"
+              }`}
+              onClick={() => setActiveTab("schedule")}
+            >
+              Schedule
+            </button>
+          </li>
+        </ul>
+      </div>
+      
+      {/* Tab Content */}
       <div className="bg-white shadow rounded-lg p-6">
-        <h2 className="text-xl font-semibold mb-4">Your Driving School</h2>
-        <p className="text-gray-500">Configure your driving school settings and manage teachers and students.</p>
+        {/* School Details Tab */}
+        {activeTab === "school" && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">School Information</h2>
+              <Link 
+                to={`/edit-driving-school/${drivingSchool.id}`}
+                className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm"
+              >
+                Edit Details
+              </Link>
+            </div>
+            
+            <div className="grid md:grid-cols-2 gap-6 mb-6">
+              <div>
+                <h3 className="font-semibold mb-2">Basic Information</h3>
+                <div className="space-y-2">
+                  <p><span className="font-medium">Name:</span> {drivingSchool.name}</p>
+                  <p><span className="font-medium">License Number:</span> {drivingSchool.license_number}</p>
+                  <p><span className="font-medium">Phone:</span> {drivingSchool.phone}</p>
+                  <p><span className="font-medium">Email:</span> {drivingSchool.email}</p>
+                </div>
+              </div>
+              
+              <div>
+                <h3 className="font-semibold mb-2">Location</h3>
+                <div className="space-y-2">
+                  <p><span className="font-medium">Address:</span> {drivingSchool.address}</p>
+                  <p><span className="font-medium">City:</span> {drivingSchool.city}</p>
+                  <p><span className="font-medium">State:</span> {drivingSchool.state}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mb-6">
+              <h3 className="font-semibold mb-2">Description</h3>
+              <p className="text-gray-700">{drivingSchool.description}</p>
+            </div>
+            
+            <div className="mb-6">
+              <h3 className="font-semibold mb-2">Course Pricing</h3>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-gray-100 p-4 rounded">
+                  <p className="font-medium text-lg">{drivingSchool.price_code.toFixed(2)} DZD</p>
+                  <p className="text-gray-500">Code Course</p>
+                </div>
+                <div className="bg-gray-100 p-4 rounded">
+                  <p className="font-medium text-lg">{drivingSchool.price_parking.toFixed(2)} DZD</p>
+                  <p className="text-gray-500">Parking Course</p>
+                </div>
+                <div className="bg-gray-100 p-4 rounded">
+                  <p className="font-medium text-lg">{drivingSchool.price_road.toFixed(2)} DZD</p>
+                  <p className="text-gray-500">Road Course</p>
+                </div>
+              </div>
+            </div>
+            
+            <div>
+              <h3 className="font-semibold mb-2">Teacher Availability</h3>
+              <div className="flex space-x-4">
+                {drivingSchool.has_male_teachers && (
+                  <span className="inline-block bg-blue-100 text-blue-800 text-sm px-3 py-1 rounded-full">
+                    Male Teachers Available
+                  </span>
+                )}
+                {drivingSchool.has_female_teachers && (
+                  <span className="inline-block bg-pink-100 text-pink-800 text-sm px-3 py-1 rounded-full">
+                    Female Teachers Available
+                  </span>
+                )}
+                {!drivingSchool.has_male_teachers && !drivingSchool.has_female_teachers && (
+                  <span className="text-gray-500">No teachers specified</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Students Tab */}
+        {activeTab === "students" && (
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Enrolled Students</h2>
+            
+            {students.length === 0 ? (
+              <p className="text-gray-500">No students enrolled yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="py-2 px-4 text-left">Name</th>
+                      <th className="py-2 px-4 text-left">Gender</th>
+                      <th className="py-2 px-4 text-left">Contact</th>
+                      <th className="py-2 px-4 text-left">Courses</th>
+                      <th className="py-2 px-4 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {students.map((student) => (
+                      <tr key={student.id}>
+                        <td className="py-3 px-4">{student.full_name}</td>
+                        <td className="py-3 px-4 capitalize">{student.gender}</td>
+                        <td className="py-3 px-4">
+                          <div>{student.email}</div>
+                          <div className="text-sm text-gray-500">{student.phone}</div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {student.courses && student.courses.length > 0 ? (
+                            <div className="space-y-1">
+                              {student.courses.map((course) => (
+                                <div key={course.id} className="flex items-center">
+                                  <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
+                                    course.status === "completed" ? "bg-green-500" :
+                                    course.status === "in_progress" ? "bg-yellow-500" :
+                                    course.status === "failed" ? "bg-red-500" :
+                                    "bg-gray-500"
+                                  }`}></span>
+                                  <span className="capitalize">{course.type}</span>
+                                  <span className="mx-1">-</span>
+                                  <span className="text-xs text-gray-500 capitalize">{course.status.replace("_", " ")}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-500">No courses</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <button className="text-blue-600 hover:text-blue-800 mr-2">
+                            View Details
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Teachers Tab */}
+        {activeTab === "teachers" && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Teachers</h2>
+              <button 
+                onClick={() => setShowAddTeacherModal(true)}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+              >
+                Add New Teacher
+              </button>
+            </div>
+            
+            {teachers.length === 0 ? (
+              <p className="text-gray-500">No teachers added yet.</p>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {teachers.map((teacher) => (
+                  <div key={teacher.id} className="border rounded-lg overflow-hidden shadow-sm">
+                    <div className="p-4">
+                      <h3 className="font-semibold text-lg mb-1">{teacher.user?.full_name || "Teacher"}</h3>
+                      <p className="text-sm text-gray-500 mb-2">
+                        {teacher.years_experience} years experience
+                      </p>
+                      
+                      <div className="mb-3">
+                        <span className={`inline-block ${
+                          teacher.gender === "male" ? "bg-blue-100 text-blue-800" : "bg-pink-100 text-pink-800"
+                        } text-xs px-2 py-1 rounded-full`}>
+                          {teacher.gender === "male" ? "Male" : "Female"} Teacher
+                        </span>
+                      </div>
+                      
+                      <div className="mb-3">
+                        <h4 className="text-sm font-medium">Specialization:</h4>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {teacher.specialization?.map((spec) => (
+                            <span key={spec} className="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">
+                              {spec.charAt(0).toUpperCase() + spec.slice(1)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+                        <button className="text-blue-600 hover:text-blue-800 text-sm">
+                          View Schedule
+                        </button>
+                        <button className="text-gray-600 hover:text-gray-800 text-sm">
+                          Edit
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {/* Add Teacher Modal */}
+            {showAddTeacherModal && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+                  <h2 className="text-xl font-semibold mb-4">Add New Teacher</h2>
+                  
+                  <form onSubmit={handleAddTeacher}>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Full Name</label>
+                        <input
+                          type="text"
+                          name="full_name"
+                          value={newTeacher.full_name}
+                          onChange={handleTeacherInputChange}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Email</label>
+                        <input
+                          type="email"
+                          name="email"
+                          value={newTeacher.email}
+                          onChange={handleTeacherInputChange}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Phone</label>
+                        <input
+                          type="tel"
+                          name="phone"
+                          value={newTeacher.phone}
+                          onChange={handleTeacherInputChange}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Gender</label>
+                        <select
+                          name="gender"
+                          value={newTeacher.gender}
+                          onChange={handleTeacherInputChange}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                        >
+                          <option value="male">Male</option>
+                          <option value="female">Female</option>
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Date of Birth</label>
+                        <input
+                          type="date"
+                          name="date_of_birth"
+                          value={newTeacher.date_of_birth}
+                          onChange={handleTeacherInputChange}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Address</label>
+                        <input
+                          type="text"
+                          name="address"
+                          value={newTeacher.address}
+                          onChange={handleTeacherInputChange}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Driving License Number</label>
+                        <input
+                          type="text"
+                          name="license_number"
+                          value={newTeacher.license_number}
+                          onChange={handleTeacherInputChange}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Years of Experience</label>
+                        <input
+                          type="number"
+                          name="years_experience"
+                          value={newTeacher.years_experience}
+                          onChange={handleTeacherInputChange}
+                          min="0"
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Specialization</label>
+                        <div className="space-y-2">
+                          <div className="flex items-center">
+                            <input
+                              type="checkbox"
+                              id="spec-code"
+                              name="specialization"
+                              value="code"
+                              checked={newTeacher.specialization.includes("code")}
+                              onChange={handleTeacherInputChange}
+                              className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                            />
+                            <label htmlFor="spec-code" className="ml-2 block text-sm text-gray-700">
+                              Code Course
+                            </label>
+                          </div>
+                          <div className="flex items-center">
+                            <input
+                              type="checkbox"
+                              id="spec-parking"
+                              name="specialization"
+                              value="parking"
+                              checked={newTeacher.specialization.includes("parking")}
+                              onChange={handleTeacherInputChange}
+                              className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                            />
+                            <label htmlFor="spec-parking" className="ml-2 block text-sm text-gray-700">
+                              Parking Course
+                            </label>
+                          </div>
+                          <div className="flex items-center">
+                            <input
+                              type="checkbox"
+                              id="spec-road"
+                              name="specialization"
+                              value="road"
+                              checked={newTeacher.specialization.includes("road")}
+                              onChange={handleTeacherInputChange}
+                              className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                            />
+                            <label htmlFor="spec-road" className="ml-2 block text-sm text-gray-700">
+                              Road Course
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Bio</label>
+                        <textarea
+                          name="bio"
+                          value={newTeacher.bio}
+                          onChange={handleTeacherInputChange}
+                          rows="3"
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                        ></textarea>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-6 flex justify-end space-x-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddTeacherModal(false)}
+                        className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded"
+                      >
+                        Add Teacher
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Cars Tab */}
+        {activeTab === "cars" && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Cars</h2>
+              <button 
+                onClick={() => setShowAddCarModal(true)}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+              >
+                Add New Car
+              </button>
+            </div>
+            
+            {cars.length === 0 ? (
+              <p className="text-gray-500">No cars added yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="py-2 px-4 text-left">Make & Model</th>
+                      <th className="py-2 px-4 text-left">Year</th>
+                      <th className="py-2 px-4 text-left">License Plate</th>
+                      <th className="py-2 px-4 text-left">Color</th>
+                      <th className="py-2 px-4 text-left">Status</th>
+                      <th className="py-2 px-4 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {cars.map((car) => (
+                      <tr key={car.id}>
+                        <td className="py-3 px-4">{car.make} {car.model}</td>
+                        <td className="py-3 px-4">{car.year}</td>
+                        <td className="py-3 px-4">{car.license_plate}</td>
+                        <td className="py-3 px-4">{car.color}</td>
+                        <td className="py-3 px-4">
+                          <span className={`inline-block px-2 py-1 text-xs rounded-full ${
+                            car.status === "Available" 
+                              ? "bg-green-100 text-green-800"
+                              : "bg-yellow-100 text-yellow-800"
+                          }`}>
+                            {car.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <button className="text-blue-600 hover:text-blue-800 mr-2">
+                            Edit
+                          </button>
+                          <button className="text-red-600 hover:text-red-800">
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            
+            {/* Add Car Modal */}
+            {showAddCarModal && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg p-6 max-w-md w-full">
+                  <h2 className="text-xl font-semibold mb-4">Add New Car</h2>
+                  
+                  <form onSubmit={handleAddCar}>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Make</label>
+                        <input
+                          type="text"
+                          name="make"
+                          value={newCar.make}
+                          onChange={handleCarInputChange}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                          placeholder="e.g. Renault"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Model</label>
+                        <input
+                          type="text"
+                          name="model"
+                          value={newCar.model}
+                          onChange={handleCarInputChange}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                          placeholder="e.g. Clio"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Year</label>
+                        <input
+                          type="number"
+                          name="year"
+                          value={newCar.year}
+                          onChange={handleCarInputChange}
+                          min="1990"
+                          max={new Date().getFullYear()}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">License Plate</label>
+                        <input
+                          type="text"
+                          name="license_plate"
+                          value={newCar.license_plate}
+                          onChange={handleCarInputChange}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                          placeholder="e.g. 123456-16"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Color</label>
+                        <input
+                          type="text"
+                          name="color"
+                          value={newCar.color}
+                          onChange={handleCarInputChange}
+                          required
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                          placeholder="e.g. White"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="mt-6 flex justify-end space-x-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddCarModal(false)}
+                        className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded"
+                      >
+                        Add Car
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Schedule Tab */}
+        {activeTab === "schedule" && (
+          <div>
+            <h2 className="text-xl font-semibold mb-4">School Schedule</h2>
+            
+            <div className="mb-4">
+              <div className="flex items-center space-x-2 mb-3">
+                <button className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Today</button>
+                <button className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">This Week</button>
+                <button className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">This Month</button>
+              </div>
+              
+              <div className="grid grid-cols-7 gap-2 text-center font-medium text-sm mb-2">
+                <div>Sunday</div>
+                <div>Monday</div>
+                <div>Tuesday</div>
+                <div>Wednesday</div>
+                <div>Thursday</div>
+                <div>Friday</div>
+                <div>Saturday</div>
+              </div>
+              
+              <div className="border rounded-lg overflow-hidden">
+                <div className="grid grid-cols-7 gap-0 text-sm">
+                  {/* Generate calendar cells for a week */}
+                  {Array.from({ length: 7 }).map((_, dayIndex) => {
+                    const date = new Date();
+                    date.setDate(date.getDate() - date.getDay() + dayIndex);
+                    
+                    return (
+                      <div 
+                        key={dayIndex} 
+                        className={`border min-h-[200px] p-2 ${
+                          date.getDay() === new Date().getDay() ? "bg-blue-50" : ""
+                        }`}
+                      >
+                        <div className="font-medium mb-2">{date.getDate()}</div>
+                        
+                        {/* Example scheduled items */}
+                        {dayIndex === 1 && (
+                          <>
+                            <div className="bg-green-100 text-green-800 p-1 rounded mb-1 text-xs">
+                              <div className="font-medium">Code Course</div>
+                              <div>9:00 AM - 10:00 AM</div>
+                              <div>20 students</div>
+                            </div>
+                            <div className="bg-yellow-100 text-yellow-800 p-1 rounded mb-1 text-xs">
+                              <div className="font-medium">Parking Course</div>
+                              <div>10:30 AM - 11:30 AM</div>
+                              <div>Ahmed M.</div>
+                            </div>
+                          </>
+                        )}
+                        
+                        {dayIndex === 2 && (
+                          <div className="bg-blue-100 text-blue-800 p-1 rounded mb-1 text-xs">
+                            <div className="font-medium">Road Course</div>
+                            <div>2:00 PM - 3:00 PM</div>
+                            <div>Sara K.</div>
+                          </div>
+                        )}
+                        
+                        {dayIndex === 4 && (
+                          <>
+                            <div className="bg-red-100 text-red-800 p-1 rounded mb-1 text-xs">
+                              <div className="font-medium">Exam - Code</div>
+                              <div>11:00 AM - 12:00 PM</div>
+                              <div>5 students</div>
+                            </div>
+                            <div className="bg-yellow-100 text-yellow-800 p-1 rounded mb-1 text-xs">
+                              <div className="font-medium">Parking Course</div>
+                              <div>1:30 PM - 2:30 PM</div>
+                              <div>Karim B.</div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-6">
+              <button className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">
+                Add New Schedule
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
