@@ -142,26 +142,45 @@ class DrivingSchoolAPITester:
 
     def test_login(self, user_type):
         """Test login and get token"""
+        # For login, we need to use form data instead of JSON
+        url = f"{self.base_url}/auth/token"
         form_data = {
             "username": self.test_data[user_type]["email"],
             "password": self.test_data[user_type]["password"]
         }
         
-        success, response = self.run_test(
-            f"Login as {user_type}",
-            "POST",
-            "auth/token",
-            200,
-            data=form_data
-        )
+        self.tests_run += 1
+        print(f"\n🔍 Testing Login as {user_type}...")
         
-        if success and 'access_token' in response:
-            self.token = response['access_token']
-            self.user_id = response['user_id']
-            self.user_role = response['role']
-            print(f"Logged in as {user_type} with role: {self.user_role}")
-            return True
-        return False
+        try:
+            response = requests.post(
+                url, 
+                data=form_data,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            
+            success = response.status_code == 200
+            if success:
+                self.tests_passed += 1
+                print(f"✅ Passed - Status: {response.status_code}")
+                response_data = response.json()
+                self.token = response_data['access_token']
+                self.user_id = response_data['user_id']
+                self.user_role = response_data['role']
+                print(f"Logged in as {user_type} with role: {self.user_role}")
+                return True
+            else:
+                print(f"❌ Failed - Expected 200, got {response.status_code}")
+                try:
+                    error_detail = response.json().get('detail', 'No detail provided')
+                    print(f"Error detail: {error_detail}")
+                except:
+                    print("Could not parse error response")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Failed - Error: {str(e)}")
+            return False
 
     def test_get_user_profile(self):
         """Test getting user profile"""
